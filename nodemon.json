@@ -4,5 +4,8 @@
   "delay": "100",
   "execMap": {
      "js": "babel-node"
+  },
+  "env": {
+    "NODE_ENV": "production"
   }
 }

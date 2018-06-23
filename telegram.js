@@ -8,12 +8,25 @@ export const MESSAGE_TYPES = {
   ZONE: 1,
   SEARCH_DEF: 2,
   DONE: 3,
+  CAPTCHA: 7,
 }
+
+const STATIC_INLINE_BUTTONS = [{
+  text: 'תמונות',
+  data: 'pictures',
+},{
+  text: 'טלפון',
+  data: 'phone',
+}]
 
 let chatState = {}
 const SESSION_TIMEOUT = 3*60*1000
-export async function sendMessage({id, message, type}){
-  return new Promise((resolve, reject)=>{
+export async function sendMessage({id, message, type, image, images, url, inlineButtons=[]}){
+  return new Promise(async (resolve, reject)=>{
+    if (chatState[id] && chatState[id].timeoutId){
+      clearTimeout(chatState[id].timeoutId)
+      chatState[id].timeoutId=null
+    }
     // setTimeout if response over 3 minutes then reject
     const timeoutId = setTimeout(()=>{
       if (chatState[id] && chatState[id].reject){
@@ -27,26 +40,51 @@ export async function sendMessage({id, message, type}){
       state: type,
       timeoutId,
     }
-    bot.sendMessage(id, message)
-    console.log(message);
+
+    let messageResponse
+    if (message){
+      const messageWithUrl = url?`${url}\n${message}`:message
+      let options = {}
+      const inlineButtonsParsed = inlineButtons.map(({text, data})=>{
+        return {
+          text,
+          callback_data: data,
+        }
+      })
+      if (inlineButtonsParsed.length>0){
+        options.reply_markup = {
+          inline_keyboard: [inlineButtonsParsed],
+        }
+      }
+      messageResponse = await bot.sendMessage(id, messageWithUrl, options)
+    }
+    if (image) {
+      let options = {}
+      if (messageResponse){
+        options.reply_to_message_id=messageResponse.message_id
+      }
+      bot.sendPhoto(id, image, options)
+    }
+    if (images) {
+      let options = {}
+      if (messageResponse){
+        options.reply_to_message_id=messageResponse.message_id
+      }
+      bot.sendMediaGroup(id, images, options)
+    }
+    console.log(message)
+
     if (type===MESSAGE_TYPES.DONE){
+      clearTimeout(timeoutId)
       chatState[id] = null
     }
-    // if (type===MESSAGE_TYPES.ZONE){
-    //   resolve('נדל"ן')
-    // }else if (type===MESSAGE_TYPES.SEARCH_DEF) {
-    //   resolve('ישוב: נס ציונה\nסוג נכס: מגרשים')
-    // }else {
-    //   resolve(message)
-    // }
   })
 }
 
-async function startMessage(msg, match){
+async function startMessage(msg){
   const id = msg.chat.id
+  const page = await browserController.getPage()
 
-  const browser = await browserController.getBrowser()
-  const page = await browser.newPage()
   await page.goto('http://www.yad2.co.il/',{timeout:60000, waitUntil:'networkidle0'})
   const menuTabs = await browserController.getMenuTabs(page)
   const href = await browserController.sendTabsGetHref(id, menuTabs)
@@ -67,12 +105,17 @@ async function startMessage(msg, match){
   // parse the first X results and send them to the user
   const numberOfResults = 5
   const results =  await browserController.getResults(page, numberOfResults)
+  const sendResultMessages = results.map(({image,text, url})=>{
+    const type = MESSAGE_TYPES.DONE
+
+    return sendMessage({id, message:text, image, url, type, inlineButtons:STATIC_INLINE_BUTTONS})
+  })
 
   // console.log(results);
-  const sendResultMessages = browserController.parseResults(results).map(message=>{
-    const type = MESSAGE_TYPES.DONE
-    return sendMessage({id, message, type})
-  })
+  // const sendResultMessages = browserController.parseResults(results).map(message=>{
+  //   const type = MESSAGE_TYPES.DONE
+  //   return sendMessage({id, message, type})
+  // })
   await Promise.all(sendResultMessages)
   await page.close()
 
@@ -82,20 +125,53 @@ async function startMessage(msg, match){
   // await browserController.closeBrowser()
 }
 
+bot.onText(/\/help/, (msg)=>{
+  const id = msg.chat.id
+  bot.sendMessage(id, 'חפש ביד2 על ידי הקשת הפקודה\n/start')
+})
 bot.onText(/\/start/, startMessage)
 
 bot.on('message', (msg) => {
+  if (/\/start/.test(msg.text)){
+    return null
+  }
   const chatId = msg.chat.id
   if (chatState[chatId] && chatState[chatId].resolve){
-    console.log(msg.text);
+    // console.log(msg.text);
     if (chatState[chatId].timeoutId){
       clearTimeout(chatState[chatId].timeoutId)
+      chatState[chatId].timeoutId = null
     }
 
     chatState[chatId].resolve(msg.text)
     delete chatState[chatId]
   }else{
     // do the /start
-    startMessage(msg)
+    startMessage(msg).catch(console.error)
+  }
+})
+
+bot.on('callback_query', async (callbackQuery)=>{
+  // console.log(JSON.stringify(callbackQuery,null,2));
+  const fromId = callbackQuery.from.id
+
+  if (callbackQuery.data==='phone'){
+    const url = callbackQuery.message.text.split('\n')[0]
+    const page = await browserController.getPage()
+    const phoneNumberText = await browserController.getPhoneNumber(page, url, fromId)
+
+    bot.sendMessage(fromId, phoneNumberText, {reply_to_message_id: callbackQuery.message.message_id })
+    page.close()
+  }else if (callbackQuery.data==='pictures'){
+    const url = callbackQuery.message.text.split('\n')[0]
+    const regexRes = /=([\d]+)&/.exec(url)
+    if (regexRes && regexRes[1]){
+      const page = await browserController.getPage()
+      const picturesUrl = await browserController.getPictures(page, url, regexRes[1])
+      picturesUrl.forEach(url=>{
+        bot.sendMessage(fromId, url, {reply_to_message_id: callbackQuery.message.message_id })
+      })
+      page.close()
+    }
   }
 })
