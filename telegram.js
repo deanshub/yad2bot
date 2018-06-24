@@ -72,7 +72,7 @@ export async function sendMessage({id, message, type, image, images, url, inline
       }
       bot.sendMediaGroup(id, images, options)
     }
-    console.log(message)
+    // console.log(message)
 
     if (type===MESSAGE_TYPES.DONE){
       clearTimeout(timeoutId)
@@ -136,8 +136,8 @@ bot.on('message', (msg) => {
     return null
   }
   const chatId = msg.chat.id
+  console.log(msg.text);
   if (chatState[chatId] && chatState[chatId].resolve){
-    // console.log(msg.text);
     if (chatState[chatId].timeoutId){
       clearTimeout(chatState[chatId].timeoutId)
       chatState[chatId].timeoutId = null
@@ -152,7 +152,6 @@ bot.on('message', (msg) => {
 })
 
 bot.on('callback_query', async (callbackQuery)=>{
-  // console.log(JSON.stringify(callbackQuery,null,2));
   const fromId = callbackQuery.from.id
 
   if (callbackQuery.data==='phone'){

@@ -75,7 +75,6 @@ export async function sendTabsGetHref(id, menuTabs){
       return resolve(relevantTab.url)
     }else{
       const cleanLabel = label.replace(/["'!]/g,'')
-      console.log(cleanLabel);
       const relevantTab2 = menuTabs.find(tab=>tab.label.replace(/["'!]/g,'')===cleanLabel)
       if (relevantTab2){
         return resolve(relevantTab2.url)
@@ -234,6 +233,7 @@ export async function getResults(page, numberOfResults){
     }))
 
     resolve(answers)
+    page.close()
   })
 }
 
